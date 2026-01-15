@@ -1,0 +1,1173 @@
+{
+  "name": "Twilio Voice Agent with Google Sheets Knowledge Base Integration - FIXED",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "twilio/voice",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "86053d94-4cc1-45e1-af3e-537efaed0283",
+      "name": "Webhook (Twilio Voice)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -4208,
+        1456
+      ],
+      "webhookId": "4f7cb5cb-890a-41eb-a091-26b945c8169e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nreturn [{ json: {\n  callSid: body.CallSid,\n  from: body.From,\n  speech: body.SpeechResult || \"\",\n  raw: body\n}}];"
+      },
+      "id": "f8f5f984-fdf0-4d7d-b0e7-16c4c9ec401d",
+      "name": "Code - Normalize Twilio Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3984,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{$vars.GSHEET_ID}}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 43279473,
+          "mode": "list",
+          "cachedResultName": "Leads",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1IP0c5krzq46fL47-dMJaT7_5Y_S2oxDFT8VAw7GtLj0/edit#gid=43279473"
+        },
+        "options": {}
+      },
+      "id": "31db8374-ddc3-42e8-a3ba-5b330717ee86",
+      "name": "Google Sheets - Read Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -3760,
+        1456
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "seZGg30EGeQfQN0k",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const callSid = $node[\"Code - Normalize Twilio Payload\"].json.callSid;\nconst rows = $items(\"Google Sheets - Read Leads\");\n\nlet found = null;\nlet row_number = null;\n\nfor (const item of rows) {\n  if (item.json.callSid === callSid) {\n    found = item.json;\n    const rn = item.rowNumber ?? item.rowIndex ?? item.json.rowNumber ?? item.row_number ?? item.json.row_number ?? item.json.rowIndex ?? item.json.__rowNum ?? null;\n    if (Number.isInteger(Number(rn)) && Number(rn) > 0) {\n      row_number = Number(rn);\n    } else {\n      row_number = null;\n    }\n    break;\n  }\n}\n\nreturn [{\n  json: {\n    leadFound: row_number !== null,\n    found,\n    row_number\n  }\n}];"
+      },
+      "id": "fe03c088-0762-44bb-b419-8f719b302434",
+      "name": "Code - Find Lead by callSid",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3536,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date().toISOString();\nconst norm = $node[\"Code - Normalize Twilio Payload\"].json;\nconst find = $node[\"Code - Find Lead by callSid\"].json;\n\nconst found = find.found;\nconst rowNumber = find.row_number ?? find.rowNumber ?? null;\n\nconst prevTurnCount = found ? Number(found.turnCount || 0) : 0;\nconst turnCount = prevTurnCount + 1;\n\nlet hasGreeted = \"false\";\n\nif (found && found.hasGreeted === \"true\") {\n  hasGreeted = \"true\";\n} else if (prevTurnCount >= 1) {\n  hasGreeted = \"true\";\n}\n\n// Extract conversation history\nlet transcript = [];\ntry {\n  if (found && found.transcriptJson) {\n    transcript = JSON.parse(found.transcriptJson);\n  }\n} catch {}\n\nreturn [{\n  json: {\n    leadFound: find.leadFound,\n    row_number: rowNumber,\n    callSid: norm.callSid,\n    phone: norm.from,\n    speech: norm.speech,\n    createdAt: found?.createdAt || now,\n    updatedAt: now,\n    hasGreeted,\n    turnCount,\n    lastAgentReply: found?.lastAgentReply || \"\",\n    transcript: transcript,\n    name: found?.name || \"\",\n    email: found?.email || \"\",\n    topic: found?.topic || \"\",\n    urgency: found?.urgency || \"\",\n    intent: found?.intent || \"\"\n  }\n}];"
+      },
+      "id": "f2348b62-4391-4206-82a8-5a1df03b149b",
+      "name": "Code - Prepare Call State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3328,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-speech",
+              "leftValue": "={{ $json.speech }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "887a2a55-fa71-49cd-a328-8f2b280e08bb",
+      "name": "IF - Has Speech Input?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -3104,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse OpenAI response\nlet aiResponse;\ntry {\n  const content = $json.message?.content || $json.choices?.[0]?.message?.content || \"\";\n  aiResponse = JSON.parse(content);\n} catch {\n  aiResponse = {\n    reply: \"I can help you with your immigration needs. What would you like to know about?\",\n    intent: \"GENERAL_INFO\",\n    extractedInfo: {}\n  };\n}\n\n// Get previous state\nconst prevState = $node[\"Code - Prepare Call State\"].json;\n\n// Update transcript\nconst transcript = prevState.transcript || [];\ntranscript.push({\n  role: \"user\",\n  content: prevState.speech,\n  ts: new Date().toISOString()\n});\ntranscript.push({\n  role: \"assistant\",\n  content: aiResponse.reply,\n  ts: new Date().toISOString(),\n  intent: aiResponse.intent\n});\n\n// Keep last 10 turns\nconst trimmedTranscript = transcript.slice(-10);\n\nreturn [{\n  json: {\n    ...prevState,\n    lastAgentReply: aiResponse.reply,\n    intent: aiResponse.intent,\n    transcriptJson: JSON.stringify(trimmedTranscript),\n    name: aiResponse.extractedInfo?.name || prevState.name || \"\",\n    email: aiResponse.extractedInfo?.email || prevState.email || \"\",\n    topic: aiResponse.extractedInfo?.topic || prevState.topic || \"\",\n    urgency: aiResponse.extractedInfo?.urgency || prevState.urgency || \"\"\n  }\n}];"
+      },
+      "id": "9379b6a4-4588-45cd-8671-b329cf61a330",
+      "name": "Code - Process AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2656,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "840ff1cc-9516-4330-a5ff-0ad4b58b4e86",
+              "leftValue": "={{ Number($json.row_number) > 0 }}",
+              "rightValue": "=",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "02348dac-8307-4809-b228-43c2d2184daa",
+      "name": "IF - Lead Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2432,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{$vars.GSHEET_ID}}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 43279473,
+          "mode": "list",
+          "cachedResultName": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "callSid": "={{$json.callSid}}",
+            "createdAt": "={{$json.createdAt}}",
+            "updatedAt": "={{$json.updatedAt}}",
+            "phone": "={{$json.phone}}",
+            "name": "={{$json.name}}",
+            "email": "={{$json.email}}",
+            "topic": "={{$json.topic}}",
+            "urgency": "={{$json.urgency}}",
+            "intent": "={{$json.intent}}",
+            "hasGreeted": "={{$json.hasGreeted}}",
+            "speech": "={{$json.speech}}",
+            "turnCount": "={{$json.turnCount}}",
+            "lastAgentReply": "={{$json.lastAgentReply}}",
+            "transcriptJson": "={{$json.transcriptJson}}",
+            "status": "IN_PROGRESS"
+          }
+        },
+        "options": {}
+      },
+      "id": "569769ee-dd7b-4f6c-a8c2-569b8f621248",
+      "name": "Google Sheets - Append Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -2208,
+        1232
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "seZGg30EGeQfQN0k",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$vars.GSHEET_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 43279473,
+          "mode": "list",
+          "cachedResultName": "Leads"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "updatedAt": "={{$json.updatedAt}}",
+            "name": "={{$json.name}}",
+            "email": "={{$json.email}}",
+            "topic": "={{$json.topic}}",
+            "urgency": "={{$json.urgency}}",
+            "intent": "={{$json.intent}}",
+            "lastAgentReply": "={{$json.lastAgentReply}}",
+            "transcriptJson": "={{$json.transcriptJson}}",
+            "status": "UPDATED",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "callSid",
+              "displayName": "callSid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updatedAt",
+              "displayName": "updatedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "consent",
+              "displayName": "consent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "transcriptJson",
+              "displayName": "transcriptJson",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastAgentReply",
+              "displayName": "lastAgentReply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "nextActionType",
+              "displayName": "nextActionType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nextActionPayload",
+              "displayName": "nextActionPayload",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Greeting",
+              "displayName": "Greeting",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "twiml",
+              "displayName": "twiml",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "stateForSave",
+              "displayName": "stateForSave",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f64bef72-32b4-4f8d-9e9f-1cb15119ee15",
+      "name": "Google Sheets - Update Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -2208,
+        1424
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "seZGg30EGeQfQN0k",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const MAX_TURNS = 6;\nconst actionUrl = $vars.TWILIO_VOICE_WEBHOOK_URL;\n\nconst hasGreeted = $json.hasGreeted === \"true\";\nconst turnCount = Number($json.turnCount || 0);\nconst agentReply = $json.lastAgentReply || \"How can I help you today?\";\n\n// Escape XML special characters\nconst escapeXml = (s) => String(s || \"\").replace(/[<>&'\"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;',\"'\":'&apos;','\"':'&quot;'}[c]));\nconst reply = escapeXml(agentReply);\n\nlet twiml = `<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response>`;\n\n// First greeting\nif (!hasGreeted) {\n  twiml += `\n  <Say voice=\"alice\">\n    Thanks for calling Bharat Canada Immigration.\n    ${reply}\n  </Say>\n  `;\n}\n// AI-powered conversation\nelse if (turnCount < MAX_TURNS) {\n  twiml += `\n  <Say voice=\"alice\">\n    ${reply}\n  </Say>\n  `;\n}\n// End call after max turns\nelse {\n  twiml += `\n  <Say voice=\"alice\">\n    Thank you for calling. Our team will contact you shortly.\n  </Say>\n  <Hangup/>\n  </Response>\n  `;\n  return [{ json: { twiml } }];\n}\n\n// Continue gathering\ntwiml += `\n  <Gather\n    input=\"speech\"\n    action=\"${actionUrl}\"\n    method=\"POST\"\n    timeout=\"5\"\n    speechTimeout=\"auto\"\n    actionOnEmptyResult=\"true\"\n  />\n</Response>\n`;\n\nreturn [{ json: { twiml } }];"
+      },
+      "id": "7a3b8ab3-7b59-4ac6-90a9-62c5303a13a1",
+      "name": "Code - Build TwiML with AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1984,
+        1344
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate greeting TwiML for first interaction (no speech yet)\nconst actionUrl = $vars.TWILIO_VOICE_WEBHOOK_URL;\nconst prevState = $node[\"Code - Prepare Call State\"].json;\n\nconst twiml = `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Response>\n  <Say voice=\"alice\">\n    Thanks for calling Bharat Canada Immigration.\n    Please tell me what you need today.\n    For example: Express Entry, PNP, Study Permit, Work Permit, Sponsorship, or Refusal.\n  </Say>\n  <Gather input=\"speech\" action=\"${actionUrl}\" method=\"POST\" timeout=\"5\" speechTimeout=\"auto\"/>\n  <Say voice=\"alice\">I didn't catch that. Please say it again.</Say>\n  <Gather input=\"speech\" action=\"${actionUrl}\" method=\"POST\" timeout=\"5\" speechTimeout=\"auto\"/>\n  <Say voice=\"alice\">No problem. We'll call you back soon.</Say>\n</Response>`;\n\nreturn [{ json: { twiml, stateForSave: prevState } }];"
+      },
+      "id": "1306a555-6e34-4ce8-9683-15f6037a201c",
+      "name": "Code - Build Greeting TwiML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2880,
+        1568
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "check-new-lead",
+              "leftValue": "={{ Number($json.stateForSave.row_number) > 0 }}",
+              "rightValue": "=",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e71b171a-24fe-4f48-bc93-bb95324431df",
+      "name": "IF - Greeting Lead Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2656,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$vars.GSHEET_ID}}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 43279473,
+          "mode": "list",
+          "cachedResultName": "Leads"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Greeting"
+          ],
+          "schema": [
+            {
+              "id": "callSid",
+              "displayName": "callSid",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "createdAt",
+              "displayName": "createdAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updatedAt",
+              "displayName": "updatedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "intent",
+              "displayName": "intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "consent",
+              "displayName": "consent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "transcriptJson",
+              "displayName": "transcriptJson",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "lastAgentReply",
+              "displayName": "lastAgentReply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nextActionType",
+              "displayName": "nextActionType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "nextActionPayload",
+              "displayName": "nextActionPayload",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Greeting",
+              "displayName": "Greeting",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "twiml",
+              "displayName": "twiml",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "stateForSave",
+              "displayName": "stateForSave",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "c075f20a-3bef-4732-9685-4af0d4752a78",
+      "name": "Google Sheets - Update Greeting",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -2432,
+        1520
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "seZGg30EGeQfQN0k",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{$vars.GSHEET_ID}}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 43279473,
+          "mode": "list",
+          "cachedResultName": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "callSid": "={{$json.stateForSave.callSid}}",
+            "createdAt": "={{$json.stateForSave.createdAt}}",
+            "updatedAt": "={{$json.stateForSave.updatedAt}}",
+            "phone": "={{$json.stateForSave.phone}}",
+            "hasGreeted": "={{$json.stateForSave.hasGreeted}}",
+            "turnCount": "={{$json.stateForSave.turnCount}}",
+            "status": "GREETED"
+          }
+        },
+        "options": {}
+      },
+      "id": "5941c53c-3639-4f1b-aae5-c087e35037d3",
+      "name": "Google Sheets - Append Greeting",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        -2432,
+        1680
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "seZGg30EGeQfQN0k",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{$json.twiml}}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/xml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "4a6d9ed6-ac09-4dd2-a323-674f4535a71a",
+      "name": "Respond to Webhook (TwiML)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -1760,
+        1456
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are \"BharatCanada AI\", a professional immigration voice assistant.\n\nLanguage:\n- Start in English\n- If caller speaks Hindi, switch to Hinglish\n\nRules:\n- Be polite\n- Never promise visa approval\n- Collect name & purpose\n- Ask one question at a time\n- Keep replies under 20 words\n- Speak like a real call agent\n\nLegal:\n- Ask permission to record call\n\nIntent categories:\n- STUDY_VISA\n- WORK_PERMIT\n- PR\n- VISITOR_VISA\n- REFUSAL\n- OTHER\nYou are \"BharatCanada AI\", a professional immigration voice assistant.\n\nLanguage:\n- Start in English\n- If caller speaks Hindi, switch to Hinglish\n\nRules:\n- Be polite\n- Never promise visa approval\n- Collect name & purpose\n- Ask one question at a time\n- Keep replies under 20 words\n- Speak like a real call agent\n\nLegal:\n- Ask permission to record call\n\nIntent categories:\n- STUDY_VISA\n- WORK_PERMIT\n- PR\n- VISITOR_VISA\n- REFUSAL\n- OTHER\n\nCaller said:\n{{$json.speech}}\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -3216,
+        1008
+      ],
+      "id": "2cf833b8-bef2-4e3b-9550-3628ada02d53",
+      "name": "AI Agent",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -2912,
+        1328
+      ],
+      "id": "5295f97c-6654-419b-af70-39e2416146be",
+      "name": "OpenAI Chat Model",
+      "alwaysOutputData": true,
+      "credentials": {
+        "openAiApi": {
+          "id": "K8DTz5Lnh9Ybcwuj",
+          "name": "OpenAi account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e9664fd3-450f-4211-8875-a58e1edd7044",
+              "leftValue": "={{$json.reply}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2704,
+        912
+      ],
+      "id": "59d62135-b238-4aec-a8c8-5dbaffad9050",
+      "name": "If",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d8dfbad3-0bba-458a-b6ed-8c5df49e9d85",
+              "name": "reply",
+              "value": "Sorry, I didn’t understand that. Can you repeat slowly?",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2192,
+        912
+      ],
+      "id": "ae1fed7d-9471-4a95-a5a3-4c0dd2c27fd4",
+      "name": "fall back"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook (Twilio Voice)": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Twilio Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Twilio Payload": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Read Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read Leads": {
+      "main": [
+        [
+          {
+            "node": "Code - Find Lead by callSid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Find Lead by callSid": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare Call State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare Call State": {
+      "main": [
+        [
+          {
+            "node": "IF - Has Speech Input?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Speech Input?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build Greeting TwiML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Process AI Response": {
+      "main": [
+        [
+          {
+            "node": "IF - Lead Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Lead Exists?": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Update Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Append Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Append Lead": {
+      "main": [
+        [
+          {
+            "node": "Code - Build TwiML with AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Update Lead": {
+      "main": [
+        [
+          {
+            "node": "Code - Build TwiML with AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build TwiML with AI Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (TwiML)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Greeting TwiML": {
+      "main": [
+        [
+          {
+            "node": "IF - Greeting Lead Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Greeting Lead Exists?": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Update Greeting",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Append Greeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Update Greeting": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (TwiML)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Append Greeting": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (TwiML)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "fall back",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Process AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fall back": {
+      "main": [
+        [
+          {
+            "node": "Code - Process AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "bbf6225f-db70-465f-97cc-de6f25613f97",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8aee469559b7fc153bab88f81bac78bca0c0de402050f0f39ddfca4ffd0d0346"
+  },
+  "id": "M6bf3JqVMrJH50kVGxtPJ",
+  "tags": []
+}
